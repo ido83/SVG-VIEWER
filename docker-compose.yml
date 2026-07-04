@@ -1,0 +1,63 @@
+services:
+  backend:
+    build: ./backend
+    container_name: svg-viewer-api
+    restart: unless-stopped
+    environment:
+      - PORT=4000
+      - DATA_DIR=/data
+    volumes:
+      - svg_data:/data
+    networks:
+      - svgnet
+
+  frontend:
+    build: ./frontend
+    container_name: svg-viewer-web
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    networks:
+      - svgnet
+
+  cve-license-scan:
+    image: aquasec/trivy:latest
+    container_name: svg-viewer-trivy
+    profiles: ["scan"]
+    working_dir: /workspace
+    entrypoint: ["trivy"]
+    command:
+      - filesystem
+      - --scanners
+      - vuln,license
+      - --severity
+      - HIGH,CRITICAL
+      - --exit-code
+      - "1"
+      - /workspace
+    volumes:
+      - ./:/workspace:ro
+    networks:
+      - svgnet
+
+  gitleaks:
+    image: zricethezav/gitleaks:v8.18.2
+    container_name: svg-viewer-gitleaks
+    profiles: ["scan"]
+    working_dir: /workspace
+    entrypoint: ["sh", "-c"]
+    command: >-
+      gitleaks detect --source /workspace --no-git --redact --exit-code 1
+    volumes:
+      - ./:/workspace:ro
+    networks:
+      - svgnet
+
+volumes:
+  svg_data:
+
+networks:
+  svgnet:
+    driver: bridge
