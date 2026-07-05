@@ -36,6 +36,63 @@ const isSvg = (buf) => {
   return head.includes("<svg");
 };
 
+// ---------- filename -> auto label ----------
+// Generic/placeholder words that don't describe what the SVG actually is.
+const GENERIC_NAME_WORDS = new Set([
+  "untitled", "unnamed", "new", "copy", "image", "img", "icon", "icons",
+  "svg", "asset", "assets", "file", "files", "download", "downloaded",
+  "export", "exported", "artboard", "group", "groups", "layer", "layers",
+  "path", "paths", "vector", "vectors", "shape", "shapes", "drawing",
+  "clipart", "screenshot", "screen", "shot", "frame", "final", "draft",
+  "temp", "tmp", "test", "sample", "default", "graphic", "graphics",
+]);
+
+// Whole-name patterns typical of auto-generated / meaningless filenames.
+const GIBBERISH_NAME_PATTERNS = [
+  /^\d+$/,
+  /^[0-9a-f]{6,}$/i,
+  /^img[_-]?\d+$/i,
+  /^dsc[_-]?\d+$/i,
+  /^screenshot/i,
+  /^v\d+$/i,
+  /^\d{4}[-_]?\d{2}[-_]?\d{2}/,
+];
+
+// Crude "does this look like a random string" check: too few vowels, or a
+// long run of consonants, reads as gibberish rather than an actual word.
+const isGibberishWord = (word) => {
+  const letters = word.replace(/[^a-z]/g, "");
+  if (letters.length < 4) return false;
+  const vowels = (letters.match(/[aeiou]/g) || []).length;
+  const longConsonantRun = /[^aeiou]{5,}/.test(letters);
+  return vowels / letters.length < 0.15 || longConsonantRun;
+};
+
+// Derive an auto-tag from a filename, but only when it looks meaningful.
+const meaningfulNameLabel = (rawName) => {
+  const trimmed = rawName.trim();
+  if (!trimmed) return null;
+  if (GIBBERISH_NAME_PATTERNS.some((p) => p.test(trimmed.replace(/\s+/g, ""))))
+    return null;
+
+  const words = trimmed
+    .replace(/[_\-.]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const meaningfulWords = words
+    .map((w) => w.toLowerCase())
+    .filter(
+      (w) =>
+        w.length > 1 &&
+        !/^\d+$/.test(w) &&
+        !GENERIC_NAME_WORDS.has(w) &&
+        !isGibberishWord(w)
+    );
+
+  return meaningfulWords.length ? meaningfulWords.join("-") : null;
+};
+
 // Strip active content so previews are safe to inline
 const sanitizeSvg = (text) =>
   text
@@ -50,7 +107,7 @@ app.use(express.json());
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 20 },
+  limits: { fileSize: 5 * 1024 * 1024, files: 50 },
 });
 
 // List all SVGs (metadata only)
@@ -87,10 +144,14 @@ app.post("/api/svgs", upload.array("files"), (req, res) => {
     const filePath = path.join(FILES_DIR, `${id}.svg`);
     fs.writeFileSync(filePath, clean);
 
+    const name = file.originalname.replace(/\.svg$/i, "");
+    const nameLabel = meaningfulNameLabel(name);
+    const fileTags = normalizeTags(nameLabel ? [...tags, nameLabel] : tags);
+
     const record = {
       id,
-      name: file.originalname.replace(/\.svg$/i, ""),
-      tags,
+      name,
+      tags: fileTags,
       size: Buffer.byteLength(clean),
       uploadedAt: new Date().toISOString(),
       filePath,
@@ -130,6 +191,17 @@ app.patch("/api/svgs/:id", (req, res) => {
   saveDb(db);
   const { filePath, ...meta } = item;
   res.json(meta);
+});
+
+// Delete all SVGs and reset the library
+app.delete("/api/svgs", (_req, res) => {
+  const removed = db.svgs.length;
+  for (const item of db.svgs) {
+    fs.rmSync(item.filePath, { force: true });
+  }
+  db = { svgs: [] };
+  saveDb(db);
+  res.json({ ok: true, removed });
 });
 
 // Delete

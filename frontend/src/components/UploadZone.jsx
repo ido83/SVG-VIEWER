@@ -34,7 +34,7 @@ export default function UploadZone({ onUpload, busy }) {
     >
       <div className="upload-copy">
         <h2>Add vectors to the bench</h2>
-        <p>Drop .svg files here, or browse from your computer.</p>
+        <p>Drop one SVG or publish a whole batch at once.</p>
       </div>
 
       <div className="upload-controls">
@@ -51,7 +51,7 @@ export default function UploadZone({ onUpload, busy }) {
           onClick={() => inputRef.current?.click()}
           disabled={busy}
         >
-          {busy ? "Uploading…" : "Browse files"}
+          {busy ? "Publishing…" : "Publish SVGs"}
         </button>
       </div>
 
