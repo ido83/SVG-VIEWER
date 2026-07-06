@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate app, scans, and images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Audit backend dependencies in Docker
+        run: >
+          docker run --rm
+          -v "${{ github.workspace }}/backend:/src:ro"
+          -w /work
+          node:20-alpine
+          sh -c "cp -a /src/. . && npm ci && npm audit --audit-level=high"
+
+      - name: Audit and build frontend in Docker
+        run: >
+          docker run --rm
+          -v "${{ github.workspace }}/frontend:/src:ro"
+          -w /work
+          node:20-alpine
+          sh -c "cp -a /src/. . && npm ci && npm audit --audit-level=high && npm run build"
+
+      - name: Run filesystem CVE and license scan
+        run: docker compose --profile scan run --rm cve-license-scan
+
+      - name: Run secret scan
+        run: docker compose --profile scan run --rm gitleaks
+
+      - name: Build Docker images
+        run: docker compose build --pull
+
+      - name: Scan backend image
+        run: >
+          docker run --rm
+          -v /var/run/docker.sock:/var/run/docker.sock
+          aquasec/trivy:latest
+          image
+          --scanners vuln
+          --severity HIGH,CRITICAL
+          --exit-code 1
+          svg-viewer-backend
+
+      - name: Scan frontend image
+        run: >
+          docker run --rm
+          -v /var/run/docker.sock:/var/run/docker.sock
+          aquasec/trivy:latest
+          image
+          --scanners vuln
+          --severity HIGH,CRITICAL
+          --exit-code 1
+          svg-viewer-frontend
