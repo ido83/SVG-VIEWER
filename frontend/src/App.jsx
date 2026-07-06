@@ -55,7 +55,16 @@ export default function App() {
       const { created, rejected } = await api.upload(files, tags);
       if (rejected?.length)
         setNotice(`Skipped (not valid SVG): ${rejected.join(", ")}`);
-      if (created?.length) await refresh();
+      if (created?.length) {
+        await refresh();
+        if (!rejected?.length) {
+          setNotice(
+            `Published ${created.length} SVG file${
+              created.length === 1 ? "" : "s"
+            }.`
+          );
+        }
+      }
     } catch (e) {
       setNotice(e.message);
     } finally {
@@ -66,6 +75,29 @@ export default function App() {
   const handleDelete = async (id) => {
     await api.remove(id);
     setSvgs((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  const handlePruneAll = async () => {
+    if (!svgs.length || busy) return;
+    const ok = window.confirm(
+      `Prune all ${svgs.length} SVG file${
+        svgs.length === 1 ? "" : "s"
+      } from the library? This cannot be undone.`
+    );
+    if (!ok) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const { removed } = await api.pruneAll();
+      setSvgs([]);
+      setActiveTags([]);
+      setQuery("");
+      setNotice(`Pruned ${removed} SVG file${removed === 1 ? "" : "s"}.`);
+    } catch (e) {
+      setNotice(e.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleUpdate = (updated) =>
@@ -136,6 +168,13 @@ export default function App() {
               Clear filters
             </button>
           )}
+          <button
+            className="btn btn-danger btn-sm"
+            onClick={handlePruneAll}
+            disabled={busy || svgs.length === 0}
+          >
+            Prune all
+          </button>
         </div>
 
         {allTags.length > 0 && (
